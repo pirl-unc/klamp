@@ -14,11 +14,14 @@
 import sys
 
 import argparse
+from glob import glob
 
-from .version import __version__
+from .dna import reverse_complement
 from .fastq import FastQ
 from .fasta import read_virus_reference
+from .kmer import KmerIndex
 from .repeats import count_repeats
+from .version import __version__
 
 parser = argparse.ArgumentParser("klamp")
 
@@ -33,7 +36,18 @@ parser.add_argument(
     help="FASTA file containing viral genome",
     required=True)
 
-def run_from_args(args):
+def expand_sample_paths(sample_paths):
+    if type(sample_paths) is str:
+        sample_paths = [sample_paths]
+    result = []
+    for sample_path in sample_paths:
+        if "*" in sample_path:
+            result.extend(glob(sample_path))
+        else:
+            result.append(sample_path)
+    return result
+
+def run_from_args(args, verbose=False):
     reference = read_virus_reference(args.reference)
     print("Read %0.1fkb reference from %s" % (
         len(reference) / 1000, args.reference,))
@@ -42,9 +56,12 @@ def run_from_args(args):
     print("Collapsed repeats in reference: %0.1fkb" % (
         (len(compressed_reference)/1000),
     ))
-    sample_paths = args.sample
-    if type(sample_paths) is str:
-        sample_paths = [sample_paths]
+    compressed_revcomp = reverse_complement(compressed_reference)
+
+    kmer_index = KmerIndex()
+    kmer_index.index(compressed_reference)
+    kmer_index.index(compressed_revcomp)
+    sample_paths = expand_sample_paths(args.sample)
     sample_dict = {}
     for sample_path in sample_paths:
         print("Reading sample '%s'..." % sample_path,)
@@ -55,6 +72,43 @@ def run_from_args(args):
             fastq.num_bases() / 1000,
             sample_path))
         sample_dict[sample_path] = fastq
+
+    for sample_path in sample_paths:
+        fastq = sample_dict[sample_path]
+        n_hits_total = 0
+        n_kmers_total = 0
+        n_reads = 0
+        for i, line in enumerate(fastq.sequences()):
+            n_reads += 1
+            compressed_line, _ = count_repeats(line)
+
+            if len(compressed_line) < kmer_index.kmer_size:
+                continue
+
+            n_hits, n_kmers = kmer_index.count_hits(compressed_line)
+            n_hits_total += n_hits
+            n_kmers_total += n_kmers
+
+            if n_hits > 0:
+                if verbose:
+                    print("Line #%d: homopolymer compression %d => %d bases" % (
+                        i + 1,
+                        len(line),
+                        len(compressed_line),
+                    ))
+                    print("%s:%10d - %d/%d hits (%0.2f%%)" % (
+                        sample_path,
+                        i + 1,
+                        n_hits,
+                        n_kmers,
+                        n_hits / n_kmers * 100,
+                    ))
+        print("%s (reads=%d), %d/%d kmers match reference: %0.2f%%" % (
+            sample_path,
+            n_reads,
+            n_hits_total,
+            n_kmers_total,
+            n_hits_total / n_kmers_total * 100))
 
 
 def main(args_list=None):

@@ -22,6 +22,7 @@ def count_repeats(seq):
     last_char = None
     count = 0
     for c in seq:
+
         if c == last_char:
             count += 1
         else:
@@ -30,5 +31,8 @@ def count_repeats(seq):
                 counts.append(count)
             last_char = c
             count = 1
+    if last_char and count > 0:
+        chars.append(last_char)
+        counts.append(count)
     return "".join(chars), np.array(counts)
 

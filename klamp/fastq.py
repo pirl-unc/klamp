@@ -14,13 +14,18 @@ import numpy as np
 
 from .common import normalize_string
 
-def read_id_and_metadata_line(line, convert_int=True):
+def read_id_and_metadata_line(
+        line,
+        convert_int=True,
+        line_number=None,
+        path=None):
     parts = line.split()
     name = parts[0]
     if name.startswith("@"):
         name = name[1:]
     else:
-        raise ValueError("Malformed FASTQ file")
+        raise ValueError("Malformed FASTQ identifier on line %d of '%s': '%s'" % (
+            line_number, path, line))
     metadata = {}
     for part in parts[1:]:
         if part.count("=") == 1:
@@ -75,17 +80,21 @@ class FastQ(object):
             curr_metadata = None
             curr_seq = None
             curr_quals = None
-            for line in f:
+            for i, line in enumerate(f):
                 line = line.strip()
-                if not line:
+                if not line or line == "+":
                     continue
-                if curr_name is None:
-                    curr_name, curr_metadata = \
-                        read_id_and_metadata_line(line)
+                elif curr_name is None:
+                    try:
+                        curr_name, curr_metadata = \
+                            read_id_and_metadata_line(
+                                line,
+                                line_number=i + 1,
+                                path=path)
+                    except ValueError:
+                        pass
                 elif curr_seq is None:
                     curr_seq = normalize_string(line)
-                elif line == "+":
-                    continue
                 elif curr_quals is None:
                     if skip_quals:
                         curr_quals = np.zeros(len(curr_seq), dtype="int")
@@ -99,7 +108,8 @@ class FastQ(object):
                     metadata_dict[curr_name] = curr_metadata
                     curr_name = curr_seq = curr_quals = curr_metadata = None
                 else:
-                    raise ValueError("Malformed FASTQ")
+                    raise ValueError(
+                        "Malformed FASTQ: unexpected line in '%s'" % path)
         return cls(
             seq_dict=seq_dict,
             qual_dict=qual_dict,
