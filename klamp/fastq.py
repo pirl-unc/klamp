@@ -13,7 +13,29 @@
 import numpy as np
 
 from .common import normalize_string
-from .fastq_helpers import read_id_and_metadata_line, read_quals
+
+def read_id_and_metadata_line(line, convert_int=True):
+    parts = line.split()
+    name = parts[0]
+    if name.startswith("@"):
+        name = name[1:]
+    else:
+        raise ValueError("Malformed FASTQ file")
+    metadata = {}
+    for part in parts[1:]:
+        if part.count("=") == 1:
+            k, v = part.split("=")
+            if convert_int and v.isdigit():
+                v = int(v)
+            metadata[k] = v
+    return name, metadata
+
+def read_quals(line):
+    n = len(line)
+    quals = np.zeros(n, dtype='int')
+    for i, c in enumerate(line):
+        quals[i] = ord(c) - 33
+    return quals
 
 class FastQ(object):
     def __init__(self, seq_dict, qual_dict, metadata_dict):
